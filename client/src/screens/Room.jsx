@@ -1,10 +1,12 @@
 import React, { useEffect, useCallback, useState } from "react";
 import ReactPlayer from "react-player";
+import { useNavigate } from "react-router-dom";
 import peer from "../peer-service/peer";
 import { useSocket } from "../context/SocketProvider";
 
 const RoomPage = () => {
   const socket = useSocket();
+  const navigate = useNavigate();
   const [remoteSocketId, setRemoteSocketId] = useState(null);
   const [myStream, setMyStream] = useState();
   const [remoteStream, setRemoteStream] = useState();
@@ -13,6 +15,12 @@ const RoomPage = () => {
     console.log(`UserID ${uid} joined room`);
     setRemoteSocketId(id);
   }, []);
+
+  const handleUserLeft = useCallback(() => {
+    setRemoteSocketId(null);
+    setRemoteStream(null);
+    navigate('/');
+  }, [navigate]);
 
   const handleCallUser = useCallback(async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -88,6 +96,7 @@ const RoomPage = () => {
 
   useEffect(() => {
     socket.on("user:joined", handleUserJoined);
+    socket.on("user:left", handleUserLeft);
     socket.on("incomming:call", handleIncommingCall);
     socket.on("call:accepted", handleCallAccepted);
     socket.on("peer:nego:needed", handleNegoNeedIncomming);
@@ -95,6 +104,7 @@ const RoomPage = () => {
 
     return () => {
       socket.off("user:joined", handleUserJoined);
+      socket.off("user:left", handleUserLeft);
       socket.off("incomming:call", handleIncommingCall);
       socket.off("call:accepted", handleCallAccepted);
       socket.off("peer:nego:needed", handleNegoNeedIncomming);
@@ -103,6 +113,7 @@ const RoomPage = () => {
   }, [
     socket,
     handleUserJoined,
+    handleUserLeft,
     handleIncommingCall,
     handleCallAccepted,
     handleNegoNeedIncomming,
