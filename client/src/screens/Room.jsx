@@ -10,6 +10,7 @@ const RoomPage = () => {
   const [remoteSocketId, setRemoteSocketId] = useState(null);
   const [myStream, setMyStream] = useState();
   const [remoteStream, setRemoteStream] = useState();
+  const [isQueued, setIsQueued] = useState(false);
 
   const handleUserJoined = useCallback(({ uid, id }) => {
     console.log(`UserID ${uid} joined room`);
@@ -19,8 +20,17 @@ const RoomPage = () => {
   const handleUserLeft = useCallback(() => {
     setRemoteSocketId(null);
     setRemoteStream(null);
-    navigate('/');
-  }, [navigate]);
+    // Don't navigate to lobby, wait for potential new connection
+  }, []);
+
+  const handleUserConnected = useCallback(({ to }) => {
+    setRemoteSocketId(to);
+    setIsQueued(false);
+  }, []);
+
+  const handleRoomQueued = useCallback(() => {
+    setIsQueued(true);
+  }, []);
 
   const handleCallUser = useCallback(async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -97,6 +107,8 @@ const RoomPage = () => {
   useEffect(() => {
     socket.on("user:joined", handleUserJoined);
     socket.on("user:left", handleUserLeft);
+    socket.on("user:connected", handleUserConnected);
+    socket.on("room:queued", handleRoomQueued);
     socket.on("incomming:call", handleIncommingCall);
     socket.on("call:accepted", handleCallAccepted);
     socket.on("peer:nego:needed", handleNegoNeedIncomming);
@@ -105,6 +117,8 @@ const RoomPage = () => {
     return () => {
       socket.off("user:joined", handleUserJoined);
       socket.off("user:left", handleUserLeft);
+      socket.off("user:connected", handleUserConnected);
+      socket.off("room:queued", handleRoomQueued);
       socket.off("incomming:call", handleIncommingCall);
       socket.off("call:accepted", handleCallAccepted);
       socket.off("peer:nego:needed", handleNegoNeedIncomming);
@@ -114,6 +128,8 @@ const RoomPage = () => {
     socket,
     handleUserJoined,
     handleUserLeft,
+    handleUserConnected,
+    handleRoomQueued,
     handleIncommingCall,
     handleCallAccepted,
     handleNegoNeedIncomming,
@@ -123,7 +139,11 @@ const RoomPage = () => {
   return (
     <div>
       <h1>Room Page</h1>
-      <h4>{remoteSocketId ? "Connected" : "No one in room"}</h4>
+      {isQueued ? (
+        <h4>You are in queue. Please wait...</h4>
+      ) : (
+        <h4>{remoteSocketId ? "Connected" : "Waiting for someone to join..."}</h4>
+      )}
       {myStream && <button onClick={sendStreams}>Send Stream</button>}
       {remoteSocketId && <button onClick={handleCallUser}>CALL</button>}
       {myStream && (
