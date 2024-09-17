@@ -21,10 +21,10 @@ function joinRoom(socket, room, uid) {
     io.to(socket.id).emit("room:join", { uid, room });
     
     if (roomSize === 1) {
-      // Connect the two users in the room
+      // Connect the two users in the room and start streaming
       const users = Array.from(io.sockets.adapter.rooms.get(room));
-      io.to(users[0]).emit("user:connected", { to: users[1] });
-      io.to(users[1]).emit("user:connected", { to: users[0] });
+      io.to(users[0]).emit("start:stream", { to: users[1] });
+      io.to(users[1]).emit("start:stream", { to: users[0] });
     }
   } else {
     // Room is full, add user to queue
@@ -44,21 +44,19 @@ io.on("connection", (socket) => {
     joinRoom(socket, room, uid);
   });
 
-  socket.on("user:call", ({ to, offer }) => {
-    io.to(to).emit("incomming:call", { from: socket.id, offer });
+  socket.on("stream:init", ({ to, offer }) => {
+    io.to(to).emit("stream:init", { from: socket.id, offer });
   });
 
-  socket.on("call:accepted", ({ to, ans }) => {
-    io.to(to).emit("call:accepted", { from: socket.id, ans });
+  socket.on("stream:accept", ({ to, ans }) => {
+    io.to(to).emit("stream:accept", { from: socket.id, ans });
   });
 
   socket.on("peer:nego:needed", ({ to, offer }) => {
-    console.log("peer:nego:needed", offer);
     io.to(to).emit("peer:nego:needed", { from: socket.id, offer });
   });
 
   socket.on("peer:nego:done", ({ to, ans }) => {
-    console.log("peer:nego:done", ans);
     io.to(to).emit("peer:nego:final", { from: socket.id, ans });
   });
 
