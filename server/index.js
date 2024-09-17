@@ -7,18 +7,41 @@ const io = new Server(process.env.PORT || 10000, {
 const uidToSocketIdMap = new Map();
 const socketidToUidMap = new Map();
 const socketIdToRoomMap = new Map();
+const roomQueues = new Map();
+
+function joinRoom(socket, room, uid) {
+  const roomSize = io.sockets.adapter.rooms.get(room)?.size || 0;
+  
+  if (roomSize < 2) {
+    uidToSocketIdMap.set(uid, socket.id);
+    socketidToUidMap.set(socket.id, uid);
+    socketIdToRoomMap.set(socket.id, room);
+    socket.join(room);
+    io.to(room).emit("user:joined", { uid, id: socket.id });
+    io.to(socket.id).emit("room:join", { uid, room });
+    
+    if (roomSize === 1) {
+      // Connect the two users in the room
+      const users = Array.from(io.sockets.adapter.rooms.get(room));
+      io.to(users[0]).emit("user:connected", { to: users[1] });
+      io.to(users[1]).emit("user:connected", { to: users[0] });
+    }
+  } else {
+    // Room is full, add user to queue
+    if (!roomQueues.has(room)) {
+      roomQueues.set(room, []);
+    }
+    roomQueues.get(room).push({ socket, uid });
+    socket.emit("room:queued", { room });
+  }
+}
 
 io.on("connection", (socket) => {
   console.log(`Socket Connected`, socket.id);
 
   socket.on("room:join", (data) => {
     const { uid, room } = data;
-    uidToSocketIdMap.set(uid, socket.id);
-    socketidToUidMap.set(socket.id, uid);
-    socketIdToRoomMap.set(socket.id, room);
-    io.to(room).emit("user:joined", { uid, id: socket.id });
-    socket.join(room);
-    io.to(socket.id).emit("room:join", data);
+    joinRoom(socket, room, uid);
   });
 
   socket.on("user:call", ({ to, offer }) => {
@@ -44,6 +67,12 @@ io.on("connection", (socket) => {
     if (room) {
       const uid = socketidToUidMap.get(socket.id);
       socket.to(room).emit("user:left", { uid, id: socket.id });
+
+      // Check if there's someone in the queue for this room
+      if (roomQueues.has(room) && roomQueues.get(room).length > 0) {
+        const nextUser = roomQueues.get(room).shift();
+        joinRoom(nextUser.socket, room, nextUser.uid);
+      }
     }
   });
 
@@ -54,6 +83,18 @@ io.on("connection", (socket) => {
     uidToSocketIdMap.delete(uid);
     socketidToUidMap.delete(socket.id);
     socketIdToRoomMap.delete(socket.id);
+
+    // Remove the user from any room queues
+    for (const [roomName, queue] of roomQueues.entries()) {
+      const index = queue.findIndex(user => user.socket.id === socket.id);
+      if (index !== -1) {
+        queue.splice(index, 1);
+        if (queue.length === 0) {
+          roomQueues.delete(roomName);
+        }
+        break;
+      }
+    }
 
     console.log(`Socket Disconnected`, socket.id);
   });
