@@ -144,7 +144,7 @@ const RoomPage = () => {
       ) : (
         <h4>{remoteSocketId ? "Connected" : "Waiting for someone to join..."}</h4>
       )}
-      {myStream && <button onClick={sendStreams}>Send Stream</button>}
+      {myStream && <button onClick={sendStreams}>Accept Call</button>}
       {remoteSocketId && <button onClick={handleCallUser}>CALL</button>}
       {myStream && (
         <>
