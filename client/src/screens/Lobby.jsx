@@ -1,64 +1,61 @@
-import React,{useState,useCallback, useEffect} from 'react'
+import React, { useState, useCallback, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useSocket } from "../context/SocketProvider";
 
+const LobbyScreen = () => {
+  const [email, setEmail] = useState("");
+  const [room, setRoom] = useState("");
 
-const Lobbyscreen=()=>{
+  const socket = useSocket();
+  const navigate = useNavigate();
 
+  const handleSubmitForm = useCallback(
+    (e) => {
+      e.preventDefault();
+      socket.emit("room:join", { email, room });
+    },
+    [email, room, socket]
+  );
 
-    const [username,setUsername]=useState("");
-    const [room,setRoom]=useState("");
+  const handleJoinRoom = useCallback(
+    (data) => {
+      const { email, room } = data;
+      navigate(`/room/${room}`);
+    },
+    [navigate]
+  );
 
-    const socket = useSocket();
+  useEffect(() => {
+    socket.on("room:join", handleJoinRoom);
+    return () => {
+      socket.off("room:join", handleJoinRoom);
+    };
+  }, [socket, handleJoinRoom]);
 
+  return (
+    <div>
+      <h1>Lobby</h1>
+      <form onSubmit={handleSubmitForm}>
+        <label htmlFor="email">Email ID</label>
+        <input
+          type="email"
+          id="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <br />
+        <label htmlFor="room">Room Number</label>
+        <input
+          type="text"
+          id="room"
+          value={room}
+          onChange={(e) => setRoom(e.target.value)}
+        />
+        <br />
+        <button>Join</button>
+      </form>
+    </div>
+  );
+};
 
-    const handleSubmitForm=useCallback((e)=>{
-        e.preventDefault();
-        console.log({username,room})
-        socket.emit("room:join",{username,room});
-        
-
-    },[socket,username,room])
-
-    const handleJoinRoom=useCallback((data)=>{
-        const {email,room}=data;
-        console.log(email,room)
-    })
-
-    useEffect(() => {
-        socket.on("room:join", handleJoinRoom);
-        return () => {
-          socket.off("room:join", handleJoinRoom);
-        };
-      }, [socket, handleJoinRoom]);
-
-
-    return(
-        <div>
-            <h1>Lobby</h1>
-            <form onSubmit={handleSubmitForm}>
-                <label htmlFor='username'>Username: </label>
-                <input 
-                    type="text"
-                    id="username" 
-                    value={username}
-                    onChange={e=>{setUsername(e.target.value)}}
-                    />
-                <br/>
-                <label htmlFor='room'>Room: </label>
-                <input 
-                    type="text" 
-                    id="room"
-                    value={room}
-                    onChange={e=>{setRoom(e.target.value)}}
-                />
-
-                <br/>
-                <button>Join</button>
-            </form>
-
-
-        </div>
-    )   
-}
-
-export default Lobbyscreen
+export default LobbyScreen;
