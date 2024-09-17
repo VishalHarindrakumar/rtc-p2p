@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useState, useRef } from "react";
+import React, { useEffect, useCallback, useState } from "react";
 import ReactPlayer from "react-player";
 import { useNavigate } from "react-router-dom";
 import peer from "../peer-service/peer";
@@ -11,130 +11,129 @@ const RoomPage = () => {
   const [myStream, setMyStream] = useState();
   const [remoteStream, setRemoteStream] = useState();
   const [isQueued, setIsQueued] = useState(false);
-  const remoteStreamRef = useRef(new MediaStream());
-  const peerConnectionRef = useRef(null);
-
-  const createPeerConnection = useCallback(() => {
-    const peerConnection = new RTCPeerConnection({
-      iceServers: [
-        {
-          urls: [
-            "stun:stun.l.google.com:19302",
-            "stun:global.stun.twilio.com:3478",
-          ],
-        },
-      ],
-    });
-
-    peerConnection.ontrack = (event) => {
-      const remoteTrack = event.track;
-      remoteStreamRef.current.addTrack(remoteTrack);
-      setRemoteStream(new MediaStream([remoteTrack]));
-    };
-
-    peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
-        socket.emit("ice-candidate", { candidate: event.candidate, to: remoteSocketId });
-      }
-    };
-
-    peerConnectionRef.current = peerConnection;
-  }, [remoteSocketId, socket]);
 
   const handleUserJoined = useCallback(({ uid, id }) => {
     console.log(`UserID ${uid} joined room`);
     setRemoteSocketId(id);
-    createPeerConnection();
-  }, [createPeerConnection]);
+  }, []);
 
   const handleUserLeft = useCallback(() => {
     setRemoteSocketId(null);
     setRemoteStream(null);
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-      peerConnectionRef.current = null;
-    }
+    // Don't navigate to lobby, wait for potential new connection
+  }, []);
+
+  const handleUserConnected = useCallback(({ to }) => {
+    setRemoteSocketId(to);
+    setIsQueued(false);
   }, []);
 
   const handleRoomQueued = useCallback(() => {
     setIsQueued(true);
   }, []);
 
-  const startStreaming = useCallback(async ({ to }) => {
+  const handleCallUser = useCallback(async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: true,
       video: true,
     });
+    const offer = await peer.getOffer();
+    socket.emit("user:call", { to: remoteSocketId, offer });
     setMyStream(stream);
-    setRemoteSocketId(to);
-    setIsQueued(false);
+  }, [remoteSocketId, socket]);
 
-    stream.getTracks().forEach((track) => {
-      peerConnectionRef.current.addTrack(track, stream);
-    });
+  const handleIncommingCall = useCallback(
+    async ({ from, offer }) => {
+      setRemoteSocketId(from);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true,
+      });
+      setMyStream(stream);
+      console.log(`Incoming Call`, from, offer);
+      const ans = await peer.getAnswer(offer);
+      socket.emit("call:accepted", { to: from, ans });
+    },
+    [socket]
+  );
 
-    const offer = await peerConnectionRef.current.createOffer();
-    await peerConnectionRef.current.setLocalDescription(offer);
-    socket.emit("stream:init", { to, offer });
-  }, [socket]);
+  const sendStreams = useCallback(() => {
+    for (const track of myStream.getTracks()) {
+      peer.peer.addTrack(track, myStream);
+    }
+  }, [myStream]);
 
-  const handleStreamInit = useCallback(async ({ from, offer }) => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: true,
-    });
-    setMyStream(stream);
-    setRemoteSocketId(from);
-    setIsQueued(false);
+  const handleCallAccepted = useCallback(
+    ({ from, ans }) => {
+      peer.setLocalDescription(ans);
+      console.log("Call Accepted!");
+      sendStreams();
+    },
+    [sendStreams]
+  );
 
-    stream.getTracks().forEach((track) => {
-      peerConnectionRef.current.addTrack(track, stream);
-    });
+  const handleNegoNeeded = useCallback(async () => {
+    const offer = await peer.getOffer();
+    socket.emit("peer:nego:needed", { offer, to: remoteSocketId });
+  }, [remoteSocketId, socket]);
 
-    await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await peerConnectionRef.current.createAnswer();
-    await peerConnectionRef.current.setLocalDescription(answer);
-    socket.emit("stream:accept", { to: from, answer });
-  }, [socket]);
+  useEffect(() => {
+    peer.peer.addEventListener("negotiationneeded", handleNegoNeeded);
+    return () => {
+      peer.peer.removeEventListener("negotiationneeded", handleNegoNeeded);
+    };
+  }, [handleNegoNeeded]);
 
-  const handleStreamAccept = useCallback(async ({ from, answer }) => {
-    await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
-    console.log("Streaming started!");
+  const handleNegoNeedIncomming = useCallback(
+    async ({ from, offer }) => {
+      const ans = await peer.getAnswer(offer);
+      socket.emit("peer:nego:done", { to: from, ans });
+    },
+    [socket]
+  );
+
+  const handleNegoNeedFinal = useCallback(async ({ ans }) => {
+    await peer.setLocalDescription(ans);
   }, []);
 
-  const handleIceCandidate = useCallback(({ candidate }) => {
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-    }
+  useEffect(() => {
+    peer.peer.addEventListener("track", async (ev) => {
+      const remoteStream = ev.streams;
+      console.log("GOT TRACKS!!");
+      setRemoteStream(remoteStream[0]);
+    });
   }, []);
 
   useEffect(() => {
     socket.on("user:joined", handleUserJoined);
     socket.on("user:left", handleUserLeft);
-    socket.on("start:stream", startStreaming);
-    socket.on("stream:init", handleStreamInit);
-    socket.on("stream:accept", handleStreamAccept);
+    socket.on("user:connected", handleUserConnected);
     socket.on("room:queued", handleRoomQueued);
-    socket.on("ice-candidate", handleIceCandidate);
+    socket.on("incomming:call", handleIncommingCall);
+    socket.on("call:accepted", handleCallAccepted);
+    socket.on("peer:nego:needed", handleNegoNeedIncomming);
+    socket.on("peer:nego:final", handleNegoNeedFinal);
 
     return () => {
       socket.off("user:joined", handleUserJoined);
       socket.off("user:left", handleUserLeft);
-      socket.off("start:stream", startStreaming);
-      socket.off("stream:init", handleStreamInit);
-      socket.off("stream:accept", handleStreamAccept);
+      socket.off("user:connected", handleUserConnected);
       socket.off("room:queued", handleRoomQueued);
-      socket.off("ice-candidate", handleIceCandidate);
+      socket.off("incomming:call", handleIncommingCall);
+      socket.off("call:accepted", handleCallAccepted);
+      socket.off("peer:nego:needed", handleNegoNeedIncomming);
+      socket.off("peer:nego:final", handleNegoNeedFinal);
     };
   }, [
     socket,
     handleUserJoined,
     handleUserLeft,
-    startStreaming,
-    handleStreamInit,
-    handleStreamAccept,
+    handleUserConnected,
     handleRoomQueued,
-    handleIceCandidate,
+    handleIncommingCall,
+    handleCallAccepted,
+    handleNegoNeedIncomming,
+    handleNegoNeedFinal,
   ]);
 
   return (
@@ -145,6 +144,8 @@ const RoomPage = () => {
       ) : (
         <h4>{remoteSocketId ? "Connected" : "Waiting for someone to join..."}</h4>
       )}
+      {myStream && <button onClick={sendStreams}>Send Stream</button>}
+      {remoteSocketId && <button onClick={handleCallUser}>CALL</button>}
       {myStream && (
         <>
           <h1>My Stream</h1>
@@ -162,6 +163,7 @@ const RoomPage = () => {
           <h1>Remote Stream</h1>
           <ReactPlayer
             playing
+            muted
             height="100px"
             width="200px"
             url={remoteStream}
