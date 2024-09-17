@@ -9,8 +9,8 @@ const RoomPage = () => {
   const [myStream, setMyStream] = useState();
   const [remoteStream, setRemoteStream] = useState();
 
-  const handleUserJoined = useCallback(({ email, id }) => {
-    console.log(`Email ${email} joined room`);
+  const handleUserJoined = useCallback(({ uid, id }) => {
+    console.log(`UserID ${uid} joined room`);
     setRemoteSocketId(id);
   }, []);
 
