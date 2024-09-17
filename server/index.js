@@ -93,6 +93,10 @@ io.on("connection", (socket) => {
         break;
       }
     }
+    socket.on("ice-candidate", ({ candidate, to }) => {
+      io.to(to).emit("ice-candidate", { candidate, from: socket.id });
+    });
+  
 
     console.log(`Socket Disconnected`, socket.id);
   });

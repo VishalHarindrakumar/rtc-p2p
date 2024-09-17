@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useState } from "react";
+import React, { useEffect, useCallback, useState, useRef } from "react";
 import ReactPlayer from "react-player";
 import { useNavigate } from "react-router-dom";
 import peer from "../peer-service/peer";
@@ -11,16 +11,49 @@ const RoomPage = () => {
   const [myStream, setMyStream] = useState();
   const [remoteStream, setRemoteStream] = useState();
   const [isQueued, setIsQueued] = useState(false);
+  const remoteStreamRef = useRef(new MediaStream());
+  const peerConnectionRef = useRef(null);
+
+  const createPeerConnection = useCallback(() => {
+    const peerConnection = new RTCPeerConnection({
+      iceServers: [
+        {
+          urls: [
+            "stun:stun.l.google.com:19302",
+            "stun:global.stun.twilio.com:3478",
+          ],
+        },
+      ],
+    });
+
+    peerConnection.ontrack = (event) => {
+      const remoteTrack = event.track;
+      remoteStreamRef.current.addTrack(remoteTrack);
+      setRemoteStream(new MediaStream([remoteTrack]));
+    };
+
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit("ice-candidate", { candidate: event.candidate, to: remoteSocketId });
+      }
+    };
+
+    peerConnectionRef.current = peerConnection;
+  }, [remoteSocketId, socket]);
 
   const handleUserJoined = useCallback(({ uid, id }) => {
     console.log(`UserID ${uid} joined room`);
     setRemoteSocketId(id);
-  }, []);
+    createPeerConnection();
+  }, [createPeerConnection]);
 
   const handleUserLeft = useCallback(() => {
     setRemoteSocketId(null);
     setRemoteStream(null);
-    // Don't navigate to lobby, wait for potential new connection
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
   }, []);
 
   const handleRoomQueued = useCallback(() => {
@@ -36,7 +69,12 @@ const RoomPage = () => {
     setRemoteSocketId(to);
     setIsQueued(false);
 
-    const offer = await peer.getOffer();
+    stream.getTracks().forEach((track) => {
+      peerConnectionRef.current.addTrack(track, stream);
+    });
+
+    const offer = await peerConnectionRef.current.createOffer();
+    await peerConnectionRef.current.setLocalDescription(offer);
     socket.emit("stream:init", { to, offer });
   }, [socket]);
 
@@ -49,53 +87,25 @@ const RoomPage = () => {
     setRemoteSocketId(from);
     setIsQueued(false);
 
-    const ans = await peer.getAnswer(offer);
-    socket.emit("stream:accept", { to: from, ans });
+    stream.getTracks().forEach((track) => {
+      peerConnectionRef.current.addTrack(track, stream);
+    });
 
-    for (const track of stream.getTracks()) {
-      peer.peer.addTrack(track, stream);
-    }
+    await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await peerConnectionRef.current.createAnswer();
+    await peerConnectionRef.current.setLocalDescription(answer);
+    socket.emit("stream:accept", { to: from, answer });
   }, [socket]);
 
-  const handleStreamAccept = useCallback(async ({ from, ans }) => {
-    await peer.setLocalDescription(ans);
+  const handleStreamAccept = useCallback(async ({ from, answer }) => {
+    await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
     console.log("Streaming started!");
-
-    for (const track of myStream.getTracks()) {
-      peer.peer.addTrack(track, myStream);
-    }
-  }, [myStream]);
-
-  const handleNegoNeeded = useCallback(async () => {
-    const offer = await peer.getOffer();
-    socket.emit("peer:nego:needed", { offer, to: remoteSocketId });
-  }, [remoteSocketId, socket]);
-
-  useEffect(() => {
-    peer.peer.addEventListener("negotiationneeded", handleNegoNeeded);
-    return () => {
-      peer.peer.removeEventListener("negotiationneeded", handleNegoNeeded);
-    };
-  }, [handleNegoNeeded]);
-
-  const handleNegoNeedIncoming = useCallback(
-    async ({ from, offer }) => {
-      const ans = await peer.getAnswer(offer);
-      socket.emit("peer:nego:done", { to: from, ans });
-    },
-    [socket]
-  );
-
-  const handleNegoNeedFinal = useCallback(async ({ ans }) => {
-    await peer.setLocalDescription(ans);
   }, []);
 
-  useEffect(() => {
-    peer.peer.addEventListener("track", async (ev) => {
-      const remoteStream = ev.streams;
-      console.log("GOT TRACKS!!");
-      setRemoteStream(remoteStream[0]);
-    });
+  const handleIceCandidate = useCallback(({ candidate }) => {
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+    }
   }, []);
 
   useEffect(() => {
@@ -105,8 +115,7 @@ const RoomPage = () => {
     socket.on("stream:init", handleStreamInit);
     socket.on("stream:accept", handleStreamAccept);
     socket.on("room:queued", handleRoomQueued);
-    socket.on("peer:nego:needed", handleNegoNeedIncoming);
-    socket.on("peer:nego:final", handleNegoNeedFinal);
+    socket.on("ice-candidate", handleIceCandidate);
 
     return () => {
       socket.off("user:joined", handleUserJoined);
@@ -115,8 +124,7 @@ const RoomPage = () => {
       socket.off("stream:init", handleStreamInit);
       socket.off("stream:accept", handleStreamAccept);
       socket.off("room:queued", handleRoomQueued);
-      socket.off("peer:nego:needed", handleNegoNeedIncoming);
-      socket.off("peer:nego:final", handleNegoNeedFinal);
+      socket.off("ice-candidate", handleIceCandidate);
     };
   }, [
     socket,
@@ -126,8 +134,7 @@ const RoomPage = () => {
     handleStreamInit,
     handleStreamAccept,
     handleRoomQueued,
-    handleNegoNeedIncoming,
-    handleNegoNeedFinal,
+    handleIceCandidate,
   ]);
 
   return (
