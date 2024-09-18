@@ -2,16 +2,12 @@ import React, { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSocket } from "../context/SocketProvider";
 
-
-
-const LobbyScreen = () => {
+const LobbyScreen = ({ toggleStats }) => {
   const [uid, setUid] = useState("");
   const [room, setRoom] = useState("");
 
   const socket = useSocket();
   const navigate = useNavigate();
-  
-  
 
   const handleSubmitForm = useCallback(
     (e) => {
@@ -56,8 +52,9 @@ const LobbyScreen = () => {
           onChange={(e) => setRoom(e.target.value)}
         />
         <br />
-        <button>Join</button>
+        <button type="submit">Join</button>
       </form>
+      <button onClick={toggleStats}>Toggle Statistics</button>
     </div>
   );
 };
