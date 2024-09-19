@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import peer from "../peer-service/peer";
 import { useSocket } from "../context/SocketProvider";
 
-const RoomPage = () => {
+const RoomPage = ({toggleStats}) => {
   const socket = useSocket();
   const navigate = useNavigate();
   const [remoteSocketId, setRemoteSocketId] = useState(null);
@@ -142,12 +142,14 @@ const RoomPage = () => {
       {isQueued ? (
         <h4>You are in queue. Please wait...</h4>
       ) : (
-        <h4>{remoteSocketId ? "Connected" : "Waiting for someone to join..."}</h4>
+        <h4>{remoteSocketId ? "Connected" : "Waiting for someone to join - Connected users in this room will now be able to call you"}</h4>
       )}
+      <button onClick={toggleStats}>Toggle Statistics</button>
       {myStream && <button onClick={sendStreams}>Send Stream</button>}
       {remoteSocketId && <button onClick={handleCallUser}>CALL</button>}
       {myStream && (
         <>
+          {!remoteStream && <h4>Local Stream sent- Waiting for Remote Stream</h4>}
           <h1>My Stream</h1>
           <ReactPlayer
             playing
@@ -160,7 +162,9 @@ const RoomPage = () => {
       )}
       {remoteStream && (
         <>
+          {!(myStream && remoteStream)&&<h4>Send Stream to connect</h4>}
           <h1>Remote Stream</h1>
+          
           <ReactPlayer
             playing
             muted

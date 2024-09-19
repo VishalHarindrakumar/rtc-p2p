@@ -17,7 +17,7 @@ function App() {
       {showStats && <StatsDisplay />}
       <Routes>
         <Route path="/" element={<LobbyScreen toggleStats={toggleStats} />} />
-        <Route path="/room/:roomId" element={<RoomPage />} />
+        <Route path="/room/:roomId" element={<RoomPage toggleStats={toggleStats} />} />
       </Routes>
     </div>
   );
